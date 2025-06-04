@@ -1,172 +1,205 @@
+//arquivo: Boid.java
 package io.github.boids;
 
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
-import com.badlogic.gdx.math.Vector2; 
+//importacoes do libgdx que a gente vai precisar pra essa classe
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.math.Vector2;
 import java.util.List;
 import java.util.Random;
 
 public class Boid {
-  //posicao: localizacao atual do boid
-  public Vector2 position;
-  //velocidade: direcao e magnitude do movimento do boid
-  public Vector2 velocity;
-  //aceleracao: usada para acumular forças em cada passo
-  public Vector2 acceleration;
+    //onde o boid esta no mundo? x e y guardados aqui
+    public Vector2 posicao;
+    //pra onde e com que rapidez o boid esta se movendo?
+    public Vector2 velocidade;
+    //qualquer forca que esta agindo no boid (tipo empurrando ele) e acumulada aqui
+    public Vector2 aceleracao;
 
-  //raioparapercepcao: distancia que um boid pode "ver" outros boids para alinhamento e coesao
-  float perceptionRadius;
-  //distanciaseparacao: distancia minima que um boid tenta manter de outros boids
-  float separationDistance;
-  //forcamaxima: limita a magnitude do vetor de direcao (steering)
-  float maxForce;
-  //velocidademaxima: limita a magnitude da velocidade
-  float maxSpeed;
+    //ate que distancia o boid consegue "ver" outros pra se alinhar e ficar junto?
+    float raioPercepcao;
+    //qual a distancia minima que o boid tenta manter dos outros pra nao bater?
+    float distanciaSeparacao;
+    //qual a "forca" maxima que o boid pode usar pra mudar de direcao?
+    float forcaMaxima;
+    //e qual a velocidade maxima que ele pode atingir?
+    float velocidadeMaxima;
 
-  private static Random random = new Random();
+    //raio pra checar quantos vizinhos estao bem pertinho pra mudar a cor
+    private float raioDensidade;
+    //numero maximo de vizinhos pra cor ficar totalmente vermelha (tipo, ta lotado!)
+    private int maxVizinhosParaDensidade;
+    //a cor do boid, que vai mudar dependendo de quantos vizinhos ele tem por perto
+    public Color corAgrupamento;
 
-  //construtor: inicializa um boid em uma posicao aleatoria
-  public Boid(float x, float y) {
-      position = new Vector2(x, y);
-      velocity = new Vector2(random.nextFloat() * 2 - 1, random.nextFloat() * 2 - 1);
-      velocity.nor();
-      velocity.scl(random.nextFloat() * 2 + 2);
-      acceleration = new Vector2();
+    //novo: variavel estatica para o peso da coesao, controlada pela ui
+    //comeca com 1.0f (comportamento padrao de atracao)
+    public static float pesoCoesaoGlobal = 1.0f;
 
-      perceptionRadius = 50f;
-      separationDistance = 25f;
-      maxForce = 0.2f;
-      maxSpeed = 4f;
-  }
+    private static Random aleatorio = new Random();
 
-  //aplicarforca: adiciona uma forca ao vetor de aceleracao
-  public void applyForce(Vector2 force) {
-      acceleration.add(force);
-  }
+    public Boid(float x, float y) {
+        posicao = new Vector2(x, y);
+        velocidade = new Vector2(aleatorio.nextFloat() * 2 - 1, aleatorio.nextFloat() * 2 - 1);
+        velocidade.nor();
+        velocidade.scl(aleatorio.nextFloat() * 2 + 2);
+        aceleracao = new Vector2();
 
-  //separacao: os agentes evitam colisoes com seus vizinhos. [cite: 5]
-  private Vector2 separate(List<Boid> boids) {
-      Vector2 steer = new Vector2();
-      int count = 0;
-      for (Boid other : boids) {
-          if (other == this) continue;
-          float d = position.dst(other.position);
-          if ((d > 0) && (d < separationDistance)) {
-              Vector2 diff = position.cpy().sub(other.position);
-              diff.nor();
-              diff.scl(1f / d);
-              steer.add(diff);
-              count++;
-          }
-      }
-      if (count > 0) {
-          steer.scl(1f / count);
-      }
-      if (steer.len() > 0) {
-          steer.nor();
-          steer.scl(maxSpeed);
-          steer.sub(velocity);
-          steer.limit(maxForce);
-      }
-      return steer;
-  }
+        raioPercepcao = 50f;
+        distanciaSeparacao = 25f;
+        forcaMaxima = 0.2f;
+        velocidadeMaxima = 4f;
 
-  //alinhamento: os agentes tentam mover-se na mesma direcao que os seus vizinhos. [cite: 6]
-  private Vector2 align(List<Boid> boids) {
-      Vector2 sum = new Vector2();
-      int count = 0;
-      for (Boid other : boids) {
-          if (other == this) continue;
-          float d = position.dst(other.position);
-          if ((d > 0) && (d < perceptionRadius)) {
-              sum.add(other.velocity);
-              count++;
-          }
-      }
-      if (count > 0) {
-          sum.scl(1f / count);
-          sum.nor();
-          sum.scl(maxSpeed);
-          Vector2 steer = sum.sub(velocity);
-          steer.limit(maxForce);
-          return steer;
-      } else {
-          return new Vector2();
-      }
-  }
+        raioDensidade = 30f;
+        maxVizinhosParaDensidade = 10;
+        corAgrupamento = new Color(Color.RED); //cor inicial, vai mudar
+    }
 
-  //coesao: os agentes tendem a ficar proximos uns dos outros, movendo-se em direcao ao centro da multidao local. [cite: 7]
-  private Vector2 cohesion(List<Boid> boids) {
-      Vector2 sum = new Vector2();
-      int count = 0;
-      for (Boid other : boids) {
-          if (other == this) continue;
-          float d = position.dst(other.position);
-          if ((d > 0) && (d < perceptionRadius)) {
-              sum.add(other.position);
-              count++;
-          }
-      }
-      if (count > 0) {
-          sum.scl(1f / count);
-          return seek(sum);
-      } else {
-          return new Vector2();
-      }
-  }
+    public void aplicarForca(Vector2 forca) {
+        aceleracao.add(forca);
+    }
 
-  //seek: calcula uma forca de direcao para um alvo desejado
-  private Vector2 seek(Vector2 target) {
-      Vector2 desired = target.cpy().sub(position);
-      desired.nor();
-      desired.scl(maxSpeed);
-      Vector2 steer = desired.sub(velocity);
-      steer.limit(maxForce);
-      return steer;
-  }
+    private Vector2 separar(List<Boid> todosAgentes) {
+        Vector2 vetorDirecao = new Vector2();
+        int contador = 0;
+        for (Boid outroAgente : todosAgentes) {
+            if (outroAgente == this) continue;
+            float dist = posicao.dst(outroAgente.posicao);
+            if ((dist > 0) && (dist < distanciaSeparacao)) {
+                Vector2 diferenca = posicao.cpy().sub(outroAgente.posicao);
+                diferenca.nor();
+                diferenca.scl(1f / dist);
+                vetorDirecao.add(diferenca);
+                contador++;
+            }
+        }
+        if (contador > 0) {
+            vetorDirecao.scl(1f / contador);
+        }
+        if (vetorDirecao.len() > 0) {
+            vetorDirecao.nor();
+            vetorDirecao.scl(velocidadeMaxima);
+            vetorDirecao.sub(velocidade);
+            vetorDirecao.limit(forcaMaxima);
+        }
+        return vetorDirecao;
+    }
 
-  //calculatesteeringforces: aplica todas as tres regras de boids
-  //movimentar-se de acordo com regras estipuladas para o algoritmo de boids. [cite: 14]
-  public void calculateSteeringForces(List<Boid> boids) {
-      Vector2 sep = separate(boids);
-      Vector2 ali = align(boids);
-      Vector2 coh = cohesion(boids);
+    private Vector2 alinhar(List<Boid> todosAgentes) {
+        Vector2 somaDasVelocidades = new Vector2();
+        int contador = 0;
+        for (Boid outroAgente : todosAgentes) {
+            if (outroAgente == this) continue;
+            float dist = posicao.dst(outroAgente.posicao);
+            if ((dist > 0) && (dist < raioPercepcao)) {
+                somaDasVelocidades.add(outroAgente.velocidade);
+                contador++;
+            }
+        }
+        if (contador > 0) {
+            somaDasVelocidades.scl(1f / contador);
+            somaDasVelocidades.nor();
+            somaDasVelocidades.scl(velocidadeMaxima);
+            Vector2 vetorDirecao = somaDasVelocidades.sub(velocidade);
+            vetorDirecao.limit(forcaMaxima);
+            return vetorDirecao;
+        } else {
+            return new Vector2();
+        }
+    }
 
-      sep.scl(1.5f); //peso para separacao
-      ali.scl(1.0f); //peso para alinhamento
-      coh.scl(1.0f); //peso para coesao
+    private Vector2 coerir(List<Boid> todosAgentes) {
+        Vector2 somaDasPosicoes = new Vector2();
+        int contador = 0;
+        for (Boid outroAgente : todosAgentes) {
+            if (outroAgente == this) continue;
+            float dist = posicao.dst(outroAgente.posicao);
+            if ((dist > 0) && (dist < raioPercepcao)) {
+                somaDasPosicoes.add(outroAgente.posicao);
+                contador++;
+            }
+        }
+        if (contador > 0) {
+            somaDasPosicoes.scl(1f / contador);
+            return buscarAlvo(somaDasPosicoes);
+        } else {
+            return new Vector2();
+        }
+    }
 
-      applyForce(sep);
-      applyForce(ali);
-      applyForce(coh);
-  }
+    private Vector2 buscarAlvo(Vector2 alvo) {
+        Vector2 direcaoDesejada = alvo.cpy().sub(posicao);
+        direcaoDesejada.nor();
+        direcaoDesejada.scl(velocidadeMaxima);
+        Vector2 vetorDirecao = direcaoDesejada.sub(velocidade);
+        vetorDirecao.limit(forcaMaxima);
+        return vetorDirecao;
+    }
 
-  //applymotion: atualiza o estado do boid
-  public void applyMotion(float deltaTime, float screenWidth, float screenHeight) {
-      velocity.add(acceleration.scl(deltaTime));
-      velocity.limit(maxSpeed);
-      position.add(velocity.cpy().scl(deltaTime));
-      acceleration.set(0, 0);
-      edges(screenWidth, screenHeight);
-  }
+    public void atualizarCorAgrupamento(List<Boid> todosAgentes) {
+        int vizinhosNoRaioDensidade = 0;
+        for (Boid outroAgente : todosAgentes) {
+            if (outroAgente == this) continue;
+            float dist = posicao.dst(outroAgente.posicao);
+            if (dist < raioDensidade) {
+                vizinhosNoRaioDensidade++;
+            }
+        }
+        float fatorInterpolacao = Math.min((float)vizinhosNoRaioDensidade / maxVizinhosParaDensidade, 1.0f);
+        corAgrupamento.set(Color.GREEN).lerp(Color.RED, fatorInterpolacao);
+    }
 
-  //edges: faz os boids darem a volta na tela
-  private void edges(float screenWidth, float screenHeight) {
-      if (position.x > screenWidth) position.x = 0;
-      else if (position.x < 0) position.x = screenWidth;
-      if (position.y > screenHeight) position.y = 0;
-      else if (position.y < 0) position.y = screenHeight;
-  }
+    public void calcularForcasDirecionaisECor(List<Boid> todosAgentes) {
+        Vector2 forcaSeparacao = separar(todosAgentes);
+        Vector2 forcaAlinhamento = alinhar(todosAgentes);
+        Vector2 forcaCoesao = coerir(todosAgentes);
 
-  //render: desenha o boid na tela
-  //agentes visiveis (como circulos ou sprites simples). [cite: 20]
-  public void render(ShapeRenderer renderer) {
-      float angle = velocity.angleDeg();
-      float size = 5.0f;
+        forcaSeparacao.scl(1.5f);
+        forcaAlinhamento.scl(1.0f);
+        //aqui esta a mudanca: usamos o pesoCoesaoGlobal!
+        //se for positivo, eles se atraem. se for negativo, eles se repelem (anti-coesao).
+        //se for zero, a coesao e ignorada.
+        forcaCoesao.scl(pesoCoesaoGlobal); //antes era forcaCoesao.scl(1.0f);
 
-      renderer.translate(position.x, position.y, 0);
-      renderer.rotate(0, 0, 1, angle);
-      renderer.triangle(size, 0, -size, -size / 2, -size, size / 2);
-      renderer.rotate(0, 0, 1, -angle);
-      renderer.translate(-position.x, -position.y, 0);
-  }
+        aplicarForca(forcaSeparacao);
+        aplicarForca(forcaAlinhamento);
+        aplicarForca(forcaCoesao);
+
+        atualizarCorAgrupamento(todosAgentes);
+    }
+
+    public void aplicarMovimento(float tempoDelta, float larguraTela, float alturaTela, float velocidadeSimulacao) {
+        float tempoDeltaEfetivo = tempoDelta * velocidadeSimulacao;
+        velocidade.add(aceleracao.cpy().scl(tempoDeltaEfetivo));
+        velocidade.limit(velocidadeMaxima);
+        posicao.add(velocidade.cpy().scl(tempoDeltaEfetivo));
+        aceleracao.set(0, 0);
+        verificarBordas(larguraTela, alturaTela);
+    }
+
+    private void verificarBordas(float larguraTela, float alturaTela) {
+        if (posicao.x > larguraTela) posicao.x = 0;
+        else if (posicao.x < 0) posicao.x = larguraTela;
+        if (posicao.y > alturaTela) posicao.y = 0;
+        else if (posicao.y < 0) posicao.y = alturaTela;
+    }
+
+    public void renderizar(SpriteBatch loteSprites, TextureRegion texturaSprite) {
+        if (texturaSprite == null) return;
+        float angulo = velocidade.angleDeg();
+        float larguraSprite = texturaSprite.getRegionWidth() / 100f;
+        float alturaSprite = texturaSprite.getRegionHeight() / 100f;
+        float origemX = larguraSprite / 2f;
+        float origemY = alturaSprite / 2f;
+
+        loteSprites.setColor(this.corAgrupamento);
+        loteSprites.draw(texturaSprite,
+                   posicao.x - origemX, posicao.y - origemY,
+                   origemX, origemY,
+                   larguraSprite, alturaSprite,
+                   1f, 1f,
+                   angulo);
+        loteSprites.setColor(Color.WHITE);
+    }
 }
